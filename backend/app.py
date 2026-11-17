@@ -20,15 +20,36 @@ from screen_engine import execute_screen  # noqa: E402
 from collect_data import data_directory  # noqa: E402
 from refresh_worker import read_json  # noqa: E402
 from industries import catalog  # noqa: E402
+import accounts  # noqa: E402
+from starlette.responses import JSONResponse  # noqa: E402
 
 app = FastAPI(title="StockLens API", version="0.4.0")
+app.include_router(accounts.router)
+
+
+@app.middleware('http')
+async def access_control(request, call_next):
+    if accounts.enabled() and request.method != 'OPTIONS' and request.url.path.startswith('/api/') and request.url.path != '/api/health' and not request.url.path.startswith('/api/account/'):
+        try:
+            if request.method in ('POST', 'PUT', 'DELETE'):
+                accounts.mutation_origin(request)
+            user = accounts.principal(request)
+            if request.url.path == '/api/interpret':
+                # Reject malformed requests before consuming a reservation.
+                InterpretRequest.model_validate(await request.json())
+                accounts.reserve_call(user['id'])
+        except HTTPException as exc:
+            return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
+        except ValueError:
+            return JSONResponse({'detail': '请求格式无效'}, status_code=422)
+    return await call_next(request)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv(
         "STOCKLENS_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",") if origin.strip()],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type"],
 )
 

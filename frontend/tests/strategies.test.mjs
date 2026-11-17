@@ -1,7 +1,30 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { decodeStrategies, encodeStrategies, makeSnapshot, metricKeys, snapshotFingerprint, snapshotParams } from '../src/strategies.ts'
+import { decodeStrategies, encodeStrategies, makeSnapshot, metricKeys, snapshotFingerprint, snapshotParams, draftFingerprint, saveStrategy, writeStrategies } from '../src/strategies.ts'
 const item = { id: 'one', name: '盈利观察', query: '利润增长', provider: 'deepseek', params: { pe_max: null, profit_min: 0, vol_max: null }, savedAt: '2026-11-17T00:00:00Z' }
+test('CRUD preserves identity, enforces capacity and marks provider changes dirty', () => {
+  const base = decodeStrategies(encodeStrategies([item]))[0]
+  assert.notEqual(draftFingerprint(base.query, 'openai', base.snapshot), draftFingerprint(base.query, base.provider, base.snapshot))
+  const updated = saveStrategy([base], { ...base, name: '重命名', createdAt: '2026-11-18T00:00:00Z' }, true)
+  assert.equal(updated[0].createdAt, base.createdAt)
+  assert.deepEqual(updated[0].snapshot, base.snapshot)
+  const copy = { ...base, id: 'two' }
+  assert.equal(saveStrategy(updated, copy, false).length, 2)
+  assert.throws(() => saveStrategy([], base, true))
+  assert.throws(() => saveStrategy([base], base, false))
+  assert.throws(() => saveStrategy(Array.from({length:30}, (_,i)=>({...base,id:String(i)})),copy,false))
+})
+test('storage corruption, write failure and stale revisions never overwrite originals', () => {
+  const base = decodeStrategies(encodeStrategies([item]))
+  let raw = encodeStrategies(base)
+  const storage = { getItem: () => raw, setItem: (_,value) => { raw=value } }
+  assert.equal(writeStrategies(storage,base,[]).length,0)
+  assert.throws(() => writeStrategies(storage,base,[]))
+  raw = '{bad json'
+  assert.throws(() => writeStrategies(storage,[],[]))
+  assert.equal(raw,'{bad json')
+  assert.throws(() => writeStrategies({getItem:()=>null,setItem:()=>{throw new Error('quota')}},[],base))
+})
 test('strategy round trip preserves zero, provider and disabled metrics', () => {
   const migrated = decodeStrategies(encodeStrategies([item]))[0]
   assert.deepEqual(migrated.params, { ...item.params, pb_max: null, roe_min: null, revenue_min: null, industry: null })

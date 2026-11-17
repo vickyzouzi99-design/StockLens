@@ -46,6 +46,24 @@ export interface SavedStrategy {
   snapshot: StrategySnapshot
 }
 export const storageKey = 'stocklens.strategies.v1'
+export function draftFingerprint(query: string, provider: string, snapshot: StrategySnapshot): string {
+  return JSON.stringify([query, provider, snapshotFingerprint(snapshot)])
+}
+export function saveStrategy(items: SavedStrategy[], item: SavedStrategy, update: boolean): SavedStrategy[] {
+  const existing = items.find(old => old.id === item.id)
+  if (update && !existing) throw new Error('原策略已被删除，请另存为新策略。')
+  if (!update && existing) throw new Error('策略 ID 重复')
+  if (!update && items.length >= 30) throw new Error('最多保存 30 条策略。')
+  const next = update ? items.map(old => old.id === item.id ? { ...item, createdAt: old.createdAt } : old) : [...items, item]
+  return decodeStrategies(encodeStrategies(next))
+}
+export function writeStrategies(storage: Pick<Storage, 'getItem' | 'setItem'>, before: SavedStrategy[], next: SavedStrategy[]) {
+  const current = decodeStrategies(storage.getItem(storageKey))
+  if (encodeStrategies(current) !== encodeStrategies(before)) throw new Error('策略库已在其他页面更新，请重新打开“我的策略”后重试。')
+  const encoded = encodeStrategies(next)
+  storage.setItem(storageKey, encoded)
+  return decodeStrategies(encoded)
+}
 
 /** Reject invalid libraries as a whole: never silently drop a saved restriction. */
 export function decodeStrategies(raw: string | null): SavedStrategy[] {

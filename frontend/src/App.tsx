@@ -3,9 +3,10 @@ import type { ReactNode } from 'react'
 import { validateMetric } from './validation'
 import type { MetricKey, Source } from './validation'
 import { describeRule, directions, needsClarification, referenceConditions } from './guidance'
-import { decodeStrategies, encodeStrategies, storageKey, metricKeys, makeSnapshot, validateSnapshot, snapshotFingerprint } from './strategies'
+import { decodeStrategies, storageKey, metricKeys, makeSnapshot, validateSnapshot, snapshotFingerprint, draftFingerprint, saveStrategy, writeStrategies } from './strategies'
 import type { SavedStrategy, StrategyParams, StrategySnapshot } from './strategies'
 import { StrategyDrawer, SaveStrategyDialog } from './StrategyPanels'
+import { accountApi, apiBase } from './accountApi'
 import './App.css'
 
 type Params = StrategyParams
@@ -99,9 +100,7 @@ interface DataStatus {
   scheduler?: { state?: string; last_checked_at?: string; schedule?: string[] }
 }
 
-const API_BASE = (
-  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
-).replace(/\/$/, '')
+const API_BASE = apiBase
 
 const metricConfig: {
   key: MetricKey
@@ -205,6 +204,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
       method: body === undefined ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -248,9 +248,9 @@ function metricTone(key: MetricKey, value: number | null | undefined) {
   return value > 0 ? 'figure-rise' : value < 0 ? 'figure-fall' : ''
 }
 
-function App() {
+function App({ accountId }: { accountId?: string }) {
   const [library, setLibrary] = useState(() => {
-    try { return { items: decodeStrategies(localStorage.getItem(storageKey)), error: '' } }
+    try { return { items: accountId ? [] : decodeStrategies(localStorage.getItem(storageKey)), error: '' } }
     catch { return { items: [] as SavedStrategy[], error: '无法读取本地策略库。原数据未被覆盖，请检查浏览器存储。' } }
   })
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -258,6 +258,8 @@ function App() {
   const [executedSnapshot, setExecutedSnapshot] = useState<{ snapshot: StrategySnapshot; query: string; provider: Provider } | null>(null)
   const [strategyId, setStrategyId] = useState('')
   const [libraryMessage, setLibraryMessage] = useState('')
+  const revision = useRef(0)
+  const [libraryReady, setLibraryReady] = useState(!accountId)
   const [query, setQuery] = useState('')
   const [editingIdea, setEditingIdea] = useState(true)
   const [provider, setProvider] = useState<Provider>('openai')
@@ -291,17 +293,40 @@ function App() {
   // 指标帮助弹窗始终只有一个打开，不参与卡片的文档流高度计算。
   const [openHelp, setOpenHelp] = useState<MetricKey | null>(null)
   const loadedStrategy = library.items.find(item => item.id === strategyId)
-  const unsavedChanges = Boolean(loadedStrategy && (query !== loadedStrategy.query || snapshotFingerprint(makeSnapshot(draft, activeMetrics, industry)) !== snapshotFingerprint(loadedStrategy.snapshot)))
+  const currentDraftFingerprint = draftFingerprint(query, provider, makeSnapshot(draft, activeMetrics, industry))
+  const unsavedChanges = loadedStrategy ? currentDraftFingerprint !== draftFingerprint(loadedStrategy.query, loadedStrategy.provider, loadedStrategy.snapshot) : Boolean(query.trim() || intent)
+  function allowDraftReplacement() {
+    return !unsavedChanges || window.confirm('当前有未保存的修改，继续将替换当前草稿，是否继续？')
+  }
 
-  function reloadLibrary() {
+  async function reloadLibrary() {
+    if (accountId) {
+      try {
+        const data = await accountApi<{ revision: number; items: SavedStrategy[] }>('/api/account/strategies')
+        setLibrary({ items: decodeStrategies(JSON.stringify({ version: 1, items: data.items })), error: '' })
+        revision.current = data.revision; setLibraryReady(true)
+      } catch { setLibrary(previous => ({ ...previous, error: '无法读取账号策略，已阻止覆盖，请重试。' })) }
+      return
+    }
     try { setLibrary({ items: decodeStrategies(localStorage.getItem(storageKey)), error: '' }) }
     catch { setLibrary({ items: [], error: '本地策略数据损坏或版本不兼容，请处理原存储后重试；未覆盖原数据。' }) }
   }
   useEffect(() => {
+    if (accountId) return
     const changed = (event: StorageEvent) => { if (event.key === storageKey || event.key === null) reloadLibrary() }
     window.addEventListener('storage', changed)
     return () => window.removeEventListener('storage', changed)
-  }, [])
+  }, [accountId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!accountId) return
+    let active = true
+    void accountApi<{ revision: number; items: SavedStrategy[] }>('/api/account/strategies').then(data => {
+      if (!active) return
+      const items = decodeStrategies(JSON.stringify({ version: 1, items: data.items }))
+      revision.current = data.revision; setLibrary({ items, error: '' }); setLibraryReady(true)
+    }).catch(() => { if (active) setLibrary({ items: [], error: '无法读取账号策略，请重试。' }) })
+    return () => { active = false }
+  }, [accountId])
 
   useEffect(() => {
     let cancelled = false
@@ -396,7 +421,10 @@ function App() {
     }
   }, [openHelp])
 
-  function selectExample(example: string) {
+  function selectExample(example: string, restoring = false) {
+    if (!restoring && !allowDraftReplacement()) return
+    setStrategyId('')
+    setExecutedSnapshot(null)
     setEditingIdea(true)
     setQuery(example)
     setAnalyzedQuery(null)
@@ -475,7 +503,7 @@ function App() {
   function addMetric(key: MetricKey) {
     setActiveMetrics(previous => metricConfig.map(item => item.key)
       .filter(item => previous.includes(item) || item === key))
-    setTouched(previous => ({ ...previous, [key]: true }))
+    setTouched(previous => ({ ...previous, [key]: draft[key].trim() ? previous[key] : true }))
     setValidated(previous => ({ ...previous, [key]: false }))
     setReferenceChosen(previous => ({ ...previous, [key]: false }))
     setError('')
@@ -570,11 +598,15 @@ function App() {
     { value: screen.summary.insufficient_data, label: '数据不足', sub: 'UNKNOWN', kind: 'unknown' },
   ] : []
 
-  function persistStrategies(items: SavedStrategy[]) {
+  async function persistStrategies(items: SavedStrategy[]) {
+    if (!libraryReady) { setLibraryMessage('策略库尚未加载，请稍后重试。'); return false }
     if (library.error) { setLibraryMessage(library.error); return false }
     try {
-      localStorage.setItem(storageKey, encodeStrategies(items))
-      setLibrary({ items: decodeStrategies(encodeStrategies(items)), error: '' })
+      if (accountId) {
+        const data = await accountApi<{ revision: number; items: SavedStrategy[] }>('/api/account/strategies', { revision: revision.current, items }, 'PUT')
+        revision.current = data.revision
+        setLibrary({ items: decodeStrategies(JSON.stringify({ version: 1, items: data.items })), error: '' })
+      } else setLibrary({ items: writeStrategies(localStorage, library.items, items), error: '' })
       return true
     } catch (err) { setLibraryMessage(err instanceof Error ? `保存失败：${err.message}` : '保存失败，请检查浏览器存储权限或可用空间。'); return false }
   }
@@ -597,15 +629,18 @@ function App() {
     setSaveDialog({ snapshot, query, provider, target: update ? loadedStrategy : undefined })
   }
 
-  function confirmSave(name: string) {
+  async function confirmSave(name: string) {
     if (!saveDialog) return
     const now = new Date().toISOString()
     const target = saveDialog.target
     if (!target && library.items.length >= 30) { setLibraryMessage('最多保存 30 条策略，请先删除不需要的方案。'); return }
     const item: SavedStrategy = { schemaVersion: 2, id: target?.id || crypto.randomUUID(), name, query: saveDialog.query, provider: saveDialog.provider,
       snapshot: saveDialog.snapshot, params: {} as Params, createdAt: target?.createdAt || now, updatedAt: now, savedAt: now }
-    if (persistStrategies(target ? library.items.map(old => old.id === target.id ? item : old) : [...library.items, item])) {
-      if (!saveDialog.rename) setStrategyId(item.id)
+    let next: SavedStrategy[]
+    try { next = saveStrategy(library.items, item, Boolean(target)) }
+    catch (err) { setLibraryMessage((err as Error).message); return }
+    if (await persistStrategies(next)) {
+      if (!saveDialog.rename && currentDraftFingerprint === draftFingerprint(item.query, item.provider, item.snapshot)) setStrategyId(item.id)
       setSaveDialog(null)
       setNotice('策略已保存，可从顶部“我的策略”载入。')
       setLibraryMessage('策略已保存。')
@@ -614,10 +649,10 @@ function App() {
 
   function restoreStrategy(item: SavedStrategy) {
     if (loading) return
-    if (unsavedChanges && !window.confirm('当前有未保存的修改，载入策略将替换这些修改，是否继续？')) return
-    setStrategyId(item.id)
+    if (!allowDraftReplacement()) return
     setDrawerOpen(false)
-    selectExample(item.query)
+    selectExample(item.query, true)
+    setStrategyId(item.id)
     setProvider(item.provider)
     setIndustry(item.params.industry)
     setAnalyzedQuery(item.query.trim())
@@ -642,7 +677,7 @@ function App() {
           <div className="header-meta"><button type="button" className="add-metric-button" disabled={loading !== null} onClick={() => { reloadLibrary(); setDrawerOpen(true) }}>我的策略</button>
             <span className="header-version">PRODUCT PREVIEW / 0.4</span>
             <div className="header-data-summary">
-            <div className="header-collected"><span>数据采集时间</span><time dateTime={dataStatus?.metadata.collected_at}>{dataStatus?.metadata.collected_at ? formatDate(dataStatus.metadata.collected_at) : '暂不可用'}</time></div>
+            <details className="header-collected"><summary><span>数据采集时间</span><time dateTime={dataStatus?.metadata.collected_at}>{dataStatus?.metadata.collected_at ? formatDate(dataStatus.metadata.collected_at) : '暂不可用'}</time></summary><div className="collection-tooltip"><p>计划更新：交易日 (GMT+8) 09:30 / 11:30 / 13:00 / 15:00。</p><p>{dataStatus?.scheduler?.last_checked_at ? `调度最近检查：${formatDate(dataStatus.scheduler.last_checked_at)}` : '自动调度尚未启动，需在常在线服务器运行。'}</p>{dataStatus?.refresh?.state === 'running' && <p>正在更新：{dataStatus.refresh.progress}。校验完成前继续使用原快照。</p>}{dataStatus?.refresh?.state === 'failed' && <p>最近更新失败，已保留上一份可用快照。</p>}</div></details>
             <div className={`data-indicator ${dataError ? 'data-offline' : ''}`}>
               <span className="live-dot" />
               {dataStatus ? `沪深300 · 已加载 ${dataStatus.stock_count} 只`
@@ -677,19 +712,10 @@ function App() {
         <section className="composer-section" aria-labelledby="intent-title">
           {intent && !editingIdea && <div className="idea-summary"><div><h2 id="intent-title">你的选股想法</h2><p>{analyzedQuery}</p><span>{intent.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} · 已解析</span></div><button type="button" className="add-metric-button" disabled={loading !== null} onClick={() => { setEditingIdea(true); requestAnimationFrame(() => document.getElementById('stock-query')?.focus()) }}>修改需求 / AI 服务</button></div>}
           <div hidden={Boolean(intent) && !editingIdea}>
-          <div className="section-heading">
-            <div className="section-title-group">
-              <span className="section-number">01</span>
-              <div>
-                <div className="section-eyebrow">DEFINE YOUR IDEA</div>
-                <h2 id={intent && !editingIdea ? undefined : 'intent-title'}>描述你的投资偏好</h2>
-              </div>
-            </div>
-            <span className="section-aside">可以描述偏好，也可以给出明确条件</span>
-          </div>
+          <h2 className="visually-hidden" id={intent && !editingIdea ? undefined : 'intent-title'}>描述你的投资偏好</h2>
 
           <div className="composer-card">
-            <div className="composer-topline"><Icon name="sparkles" size={17}/><span>自然语言选股</span><div className="composer-model"><label htmlFor="ai-provider">AI 服务</label><div className="provider-select-wrap"><select id="ai-provider" value={provider} disabled={loading !== null} onChange={event => { setProvider(event.target.value as Provider); setError(''); setNotice('') }}><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select><Icon name="chevron" size={14}/></div></div></div>
+            <div className="composer-topline"><Icon name="sparkles" size={17}/><span>自然语言选股</span></div>
             <label htmlFor="stock-query" className="visually-hidden">描述你的选股需求</label>
             <textarea
               id="stock-query"
@@ -702,7 +728,7 @@ function App() {
               placeholder="例如：我想找盈利在增长、估值不算太高，而且近期价格比较稳定的股票……"
             />
             <div className="composer-actions">
-              <div className="composer-hint"><Icon name="shield" size={15}/><span>AI 不生成股票数据，不直接给出买卖建议</span></div>
+              <div className="composer-model"><label htmlFor="ai-provider">AI 服务</label><div className="provider-select-wrap"><select id="ai-provider" value={provider} disabled={loading !== null} onChange={event => { setProvider(event.target.value as Provider); setError(''); setNotice('') }}><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select><Icon name="chevron" size={14}/></div></div>
               <div className="composer-submit"><span className="character-count">{query.length} / 500</span>
                 <button className="primary-action" type="button" onClick={() => void analyze()} disabled={loading !== null}>
                   <Icon name="sparkles" size={17}/>
@@ -712,6 +738,7 @@ function App() {
               </div>
             </div>
           </div>
+          <p className="composer-hint">AI 不生成股票数据，不直接给出买卖建议</p>
 
           {!intent && <div className="examples">
             <span className="examples-label">试试这些描述</span>
@@ -731,7 +758,7 @@ function App() {
 
         {intent && <section className="conditions-section" aria-labelledby="conditions-title">
           <div className="section-heading">
-            <div className="section-title-group"><span className="section-number">02</span><div><h2 id="conditions-title" ref={conditionsHeading} tabIndex={-1}>{showGuidance ? '明确你的筛选方向' : '确认筛选条件'}</h2><p className="conditions-intro">{showGuidance ? '这个偏好还需要具体化。选择关注维度，或补充你的判断标准。' : '核对指标含义、阈值和来源，确认后执行。'}</p></div></div>
+            <div className="section-title-group"><span className="section-number">02</span><div><h2 id="conditions-title" ref={conditionsHeading} tabIndex={-1}>{showGuidance ? '明确你的筛选方向' : '确认你的选股条件'}</h2><p className="conditions-intro">{showGuidance ? '这个偏好还需要具体化。选择关注维度，或补充你的判断标准。' : '核对指标含义、阈值和来源，确认后执行。'}</p></div></div>
             {conditionCount > 0 && <div className="section-right-meta"><span className="quiet-pill">{conditionCount} 项条件 · 全部满足</span></div>}
           </div>
 
@@ -858,16 +885,24 @@ function App() {
         </section>}
 
         <div className="data-provenance"><div className="provenance-cell"><Icon name="layers" size={18}/><div><strong>分析范围</strong><span>{dataStatus ? `${dataStatus.metadata.universe || '指定股票池'} · 当前 ${dataStatus.stock_count} 只样本` : '等待数据连接'}</span></div></div><div className="provenance-cell"><Icon name="shield" size={18}/><div><strong>计算与解释边界</strong><span>AI 解析意图，规则引擎决定入选与排除</span></div></div></div>
-        <div className="refresh-status" role="status"><p>计划更新：交易日 (GMT+8) 09:30 / 11:30 / 13:00 / 15:00。{dataStatus?.scheduler?.last_checked_at ? `调度最近检查：${formatDate(dataStatus.scheduler.last_checked_at)}` : '自动调度尚未启动，需在常在线服务器运行。'}</p>{dataStatus?.refresh?.state === 'running' && <p>正在更新：{dataStatus.refresh.progress}。完成校验前继续使用上一份快照。</p>}{dataStatus?.refresh?.state === 'failed' && <p>最近一次更新未通过，当前保留上一次可用数据。</p>}</div>
+
       </main>
 
       <footer className="site-footer"><div><span className="footer-brand">StockLens<span>.</span></span><span>让每个筛选结果都有据可查。</span></div><p>仅用于数据筛选与投资研究，不构成投资建议、确定性预测或收益承诺。</p></footer>
 
-      {drawerOpen && <StrategyDrawer items={library.items} message={library.error || libraryMessage} onClose={() => setDrawerOpen(false)} onLoad={restoreStrategy}
+      {drawerOpen && <StrategyDrawer account={Boolean(accountId)} items={library.items} message={library.error || libraryMessage} onClose={() => setDrawerOpen(false)} onLoad={restoreStrategy}
+        onImport={accountId ? async () => {
+          if (!window.confirm('将此浏览器的旧策略复制到当前账号？原本地数据会保留。')) return
+          try {
+            const imported = decodeStrategies(localStorage.getItem(storageKey)).map(item => ({ ...item, id: crypto.randomUUID() }))
+            if (library.items.length + imported.length > 30) throw new Error('导入后超过30条，请先整理策略。')
+            if (await persistStrategies([...library.items, ...imported])) setLibraryMessage(`已导入 ${imported.length} 条策略，原本地数据保留。`)
+          } catch (err) { setLibraryMessage((err as Error).message) }
+        } : undefined}
         onRename={item => { setLibraryMessage(''); setSaveDialog({ snapshot: item.snapshot, query: item.query, provider: item.provider, target: item, rename: true }) }}
         onCopy={item => { setLibraryMessage(''); setSaveDialog({ snapshot: item.snapshot, query: item.query, provider: item.provider }) }}
-        onDelete={item => { if (window.confirm(`删除「${item.name}」？此操作不可撤销。`) && persistStrategies(library.items.filter(old => old.id !== item.id))) { if (strategyId === item.id) setStrategyId(''); setLibraryMessage('策略已删除。') } }} />}
-      {saveDialog && <SaveStrategyDialog initialName={saveDialog.target?.name || ''} title={saveDialog.rename ? '重命名策略' : saveDialog.target ? '保存更改' : '保存新策略'} error={libraryMessage} onClose={() => setSaveDialog(null)} onSave={confirmSave} />}
+        onDelete={async item => { if (window.confirm(`删除「${item.name}」？此操作不可撤销。`) && await persistStrategies(library.items.filter(old => old.id !== item.id))) { if (strategyId === item.id) setStrategyId(''); setLibraryMessage('策略已删除。') } }} />}
+      {saveDialog && <SaveStrategyDialog account={Boolean(accountId)} initialName={saveDialog.target?.name || ''} title={saveDialog.rename ? '重命名策略' : saveDialog.target ? '保存更改' : '保存新策略'} error={libraryMessage} onClose={() => setSaveDialog(null)} onSave={confirmSave} />}
       {selectedStock && <div className="drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedCode(null) }}>
         <aside className="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
           <div className="drawer-header"><div><span className="drawer-overline">STOCK SCREENING TRACE</span><h2 id="drawer-title">{selectedStock.name}</h2><p>{selectedStock.thscode}</p></div><button className="drawer-close" aria-label="关闭股票详情" type="button" onClick={() => setSelectedCode(null)}><Icon name="close" size={21}/></button></div>

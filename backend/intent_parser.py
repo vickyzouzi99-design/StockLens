@@ -211,6 +211,7 @@ def parse_intent(text: str, provider: str = "openai", industry_catalog=None) -> 
     request_body = {
         "model": model,
         "temperature": 0,
+        "max_tokens": 2048,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT + '\n本次可用同花顺行业目录：' + json.dumps(industry_catalog or [], ensure_ascii=False)},

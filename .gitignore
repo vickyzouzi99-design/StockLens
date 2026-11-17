@@ -29,3 +29,5 @@ frontend/playwright-report/
 artifacts/
 # Downloaded third-party reference, retained locally for development
 docs/fuyao-api-reference.txt
+*.sqlite3
+*.sqlite3-*

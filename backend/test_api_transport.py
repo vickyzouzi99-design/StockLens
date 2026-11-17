@@ -15,7 +15,8 @@ async def post(path, payload):
         return {"type": "http.request", "body": json.dumps(payload).encode(), "more_body": False}
     async def send(message):
         messages.append(message)
-    await app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+    with patch('accounts.enabled', return_value=False):
+      await app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
                "method": "POST", "scheme": "http", "path": path, "raw_path": path.encode(),
                "query_string": b"", "headers": [(b"content-type", b"application/json")],
                "client": ("127.0.0.1", 1), "server": ("test", 80), "root_path": ""}, receive, send)
