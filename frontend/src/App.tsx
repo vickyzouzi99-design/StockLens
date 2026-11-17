@@ -729,7 +729,14 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
           <h2 className="visually-hidden" id={intent && !editingIdea ? undefined : 'intent-title'}>描述你的投资偏好</h2>
 
           <div className="composer-card">
-            <div className="composer-topline"><Icon name="sparkles" size={17}/><span>自然语言选股</span></div>
+            <div className="composer-topline"><div className="composer-title"><Icon name="sparkles" size={17}/><span>自然语言选股</span></div>{!intent && <div className="examples">
+            <span className="examples-label">试试这些描述</span>
+            <div className="example-buttons">
+              {examples.map((sample, i) => <button className="example-chip" key={sample} onClick={() => selectExample(sample)} type="button" disabled={loading !== null}>
+                <span>0{i + 1}</span>{i === 0 ? '只看低估值' : i === 1 ? '明确市盈率阈值' : '估值与盈利双条件'}<Icon name="arrow" size={13}/>
+              </button>)}
+            </div>
+          </div>}</div>
             <label htmlFor="stock-query" className="visually-hidden">描述你的选股需求</label>
             <textarea
               id="stock-query"
@@ -737,7 +744,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
               value={query}
               readOnly={loading === 'interpret'}
               maxLength={500}
-              rows={3}
+              rows={2}
               onChange={event => { setQuery(event.target.value); setError('') }}
               placeholder="例如：我想找盈利在增长、估值不算太高，而且近期价格比较稳定的股票……"
             />
@@ -754,14 +761,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
           </div>
           <p className="composer-hint">AI 不生成股票数据，不直接给出买卖建议</p>
 
-          {!intent && <div className="examples">
-            <span className="examples-label">试试这些描述</span>
-            <div className="example-buttons">
-              {examples.map((sample, i) => <button className="example-chip" key={sample} onClick={() => selectExample(sample)} type="button" disabled={loading !== null}>
-                <span>0{i + 1}</span>{i === 0 ? '只看低估值' : i === 1 ? '明确市盈率阈值' : '估值与盈利双条件'}<Icon name="arrow" size={13}/>
-              </button>)}
-            </div>
-          </div>}
+
 
           {queryChanged && intent && <div className="inline-note tone-warn"><Icon name="info" size={16}/>{providerChanged ? '已切换 AI 服务。请重新解析；下方仍保留切换前的条件与结果。' : '描述已发生变化。请点击「重新解析需求」更新下面的条件。'}</div>}
           {intent && !queryChanged && <button type="button" className="collapse-idea" onClick={() => { setEditingIdea(false); requestAnimationFrame(() => conditionsHeading.current?.focus()) }}>收起需求，继续确认条件</button>}
