@@ -1,7 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { decodeStrategies, encodeStrategies, makeSnapshot, metricKeys, snapshotFingerprint, snapshotParams, draftFingerprint, saveStrategy, writeStrategies } from '../src/strategies.ts'
+import { industryCodes, normalizeIndustry } from '../src/industrySelection.ts'
 const item = { id: 'one', name: '盈利观察', query: '利润增长', provider: 'deepseek', params: { pe_max: null, profit_min: 0, vol_max: null }, savedAt: '2026-11-17T00:00:00Z' }
+test('multiple industries survive snapshot persistence and ordering does not mark dirty', () => {
+  const base = decodeStrategies(encodeStrategies([item]))[0]
+  const snapshot = { ...base.snapshot, industry: ['881273.TI', '881155.TI'] }
+  const restored = decodeStrategies(encodeStrategies([{ ...base, snapshot }]))[0]
+  assert.deepEqual(industryCodes(restored.snapshot.industry), ['881155.TI', '881273.TI'])
+  assert.equal(snapshotFingerprint(snapshot), snapshotFingerprint({ ...snapshot, industry: ['881155.TI', '881273.TI'] }))
+  assert.equal(normalizeIndustry(['881155.TI']), '881155.TI')
+  assert.equal(normalizeIndustry([]), null)
+  assert.throws(() => normalizeIndustry(['881155.TI', 'bad']))
+})
 test('CRUD preserves identity, enforces capacity and marks provider changes dirty', () => {
   const base = decodeStrategies(encodeStrategies([item]))[0]
   assert.notEqual(draftFingerprint(base.query, 'openai', base.snapshot), draftFingerprint(base.query, base.provider, base.snapshot))

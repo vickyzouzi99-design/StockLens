@@ -7,6 +7,13 @@ import { decodeStrategies, storageKey, metricKeys, makeSnapshot, validateSnapsho
 import type { SavedStrategy, StrategyParams, StrategySnapshot } from './strategies'
 import { StrategyDrawer, SaveStrategyDialog } from './StrategyPanels'
 import { accountApi, apiBase } from './accountApi'
+import { AccountMenu, AccountSettings } from './AccountMenu'
+import { SiteFooter } from './Brand'
+import { IndustrySelector } from './IndustrySelector'
+import { industryCodes, normalizeIndustry } from './industrySelection'
+import type { IndustrySelection } from './industrySelection'
+import { DataProvenance } from './DataProvenance'
+import type { ProvenanceEntry } from './DataProvenance'
 import './App.css'
 
 type Params = StrategyParams
@@ -22,7 +29,8 @@ type IconName =
   | 'shield' | 'chart' | 'refresh'
 
 interface IntentResponse {
-  industry?: string | null
+  suggestions?: { metric: MetricKey; reason: string; limitation: string }[]
+  industry?: IndustrySelection
   provider: Provider
   status: 'ready' | 'needs_confirmation'
   active_metrics: MetricKey[]
@@ -46,6 +54,7 @@ interface Check {
 }
 
 interface StockResult {
+  data_provenance?: ProvenanceEntry[]
   industries?: { code: string; name: string }[] | null
   industry_fetched_at?: string
   thscode: string
@@ -248,7 +257,9 @@ function metricTone(key: MetricKey, value: number | null | undefined) {
   return value > 0 ? 'figure-rise' : value < 0 ? 'figure-fall' : ''
 }
 
-function App({ accountId }: { accountId?: string }) {
+function App({ accountId, username, local, onLogout }: { accountId?: string; username?: string; local?: boolean; onLogout: () => Promise<void> }) {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [aiAddedMetrics, setAIAddedMetrics] = useState<MetricKey[]>([])
   const [library, setLibrary] = useState(() => {
     try { return { items: accountId ? [] : decodeStrategies(localStorage.getItem(storageKey)), error: '' } }
     catch { return { items: [] as SavedStrategy[], error: '无法读取本地策略库。原数据未被覆盖，请检查浏览器存储。' } }
@@ -267,7 +278,7 @@ function App({ accountId }: { accountId?: string }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [touched, setTouched] = useState(emptyTouched)
   const [activeMetrics, setActiveMetrics] = useState<MetricKey[]>([])
-  const [industry, setIndustry] = useState<string | null>(null)
+  const [industry, setIndustry] = useState<IndustrySelection>(null)
   const [accepted, setAccepted] = useState(emptyAccepted)
   const [intent, setIntent] = useState<IntentResponse | null>(null)
   const [dataStatus, setDataStatus] = useState<DataStatus | null>(null)
@@ -371,7 +382,7 @@ function App({ accountId }: { accountId?: string }) {
   const hasConflicts = Boolean(intent?.conflicts?.length)
   const showGuidance = intent !== null && !hasConflicts && needsClarification(intent, clarificationResolved)
   const conditionCount = activeMetrics.length + (industry ? 1 : 0)
-  const changedParams = lastParams !== null && (queryChanged || (executedSnapshot && snapshotFingerprint(makeSnapshot(draft, activeMetrics, industry)) !== snapshotFingerprint(executedSnapshot.snapshot)) || industry !== lastParams.industry || metricConfig.some(item => {
+  const changedParams = lastParams !== null && (queryChanged || (executedSnapshot && snapshotFingerprint(makeSnapshot(draft, activeMetrics, industry)) !== snapshotFingerprint(executedSnapshot.snapshot)) || JSON.stringify(industryCodes(industry)) !== JSON.stringify(industryCodes(lastParams.industry)) || metricConfig.some(item => {
     const now = activeMetrics.includes(item.key) && draft[item.key].trim()
       ? Number(draft[item.key]) : null
     return now !== lastParams[item.key]
@@ -422,6 +433,7 @@ function App({ accountId }: { accountId?: string }) {
   }, [openHelp])
 
   function selectExample(example: string, restoring = false) {
+    setAIAddedMetrics([])
     if (!restoring && !allowDraftReplacement()) return
     setStrategyId('')
     setExecutedSnapshot(null)
@@ -462,7 +474,8 @@ function App({ accountId }: { accountId?: string }) {
     try {
       const result = await api<IntentResponse>('/api/interpret', { text, provider })
       setIntent(result)
-      setIndustry(result.industry || null)
+      setAIAddedMetrics([])
+      setIndustry(normalizeIndustry(result.industry ?? null))
       setEditingIdea(false)
       setClarificationResolved(false)
       setClarifiedDirection('')
@@ -568,7 +581,7 @@ function App({ accountId }: { accountId?: string }) {
       const next = await api<ScreenResponse>('/api/screen', { ...nextParams, snapshot_id: pinnedSnapshot })
       let diff: CompareResponse | null = null
       if (lastParams && pinnedSnapshot && next.snapshot_metadata?.snapshot_id === pinnedSnapshot &&
-          (lastParams.industry !== nextParams.industry || metricConfig.some(item => lastParams[item.key] !== nextParams[item.key]))) {
+          (JSON.stringify(industryCodes(lastParams.industry)) !== JSON.stringify(industryCodes(nextParams.industry)) || metricConfig.some(item => lastParams[item.key] !== nextParams[item.key]))) {
         try {
           diff = await api<CompareResponse>('/api/compare', {
             before: lastParams, after: nextParams, snapshot_id: next.snapshot_metadata?.snapshot_id,
@@ -674,7 +687,7 @@ function App({ accountId }: { accountId?: string }) {
             <span className="identity-separator" />
             <span className="identity-caption">投资偏好筛选工作台</span>
           </div>
-          <div className="header-meta"><button type="button" className="add-metric-button" disabled={loading !== null} onClick={() => { reloadLibrary(); setDrawerOpen(true) }}>我的策略</button>
+          <div className="header-meta">
             <span className="header-version">PRODUCT PREVIEW / 0.4</span>
             <div className="header-data-summary">
             <details className="header-collected"><summary><span>数据采集时间</span><time dateTime={dataStatus?.metadata.collected_at}>{dataStatus?.metadata.collected_at ? formatDate(dataStatus.metadata.collected_at) : '暂不可用'}</time></summary><div className="collection-tooltip"><p>计划更新：交易日 (GMT+8) 09:30 / 11:30 / 13:00 / 15:00。</p><p>{dataStatus?.scheduler?.last_checked_at ? `调度最近检查：${formatDate(dataStatus.scheduler.last_checked_at)}` : '自动调度尚未启动，需在常在线服务器运行。'}</p>{dataStatus?.refresh?.state === 'running' && <p>正在更新：{dataStatus.refresh.progress}。校验完成前继续使用原快照。</p>}{dataStatus?.refresh?.state === 'failed' && <p>最近更新失败，已保留上一份可用快照。</p>}</div></details>
@@ -684,6 +697,7 @@ function App({ accountId }: { accountId?: string }) {
                 : dataError ? '数据连接异常' : '正在连接金融数据'}
             </div>
             </div>
+            <AccountMenu username={username} local={local} onStrategies={() => { void reloadLibrary(); setDrawerOpen(true) }} onSettings={() => setSettingsOpen(true)} onLogout={onLogout}/>
           </div>
         </div>
       </header>
@@ -773,11 +787,13 @@ function App({ accountId }: { accountId?: string }) {
             <div className="guidance-followup"><label htmlFor="clarification-answer">或者，用你自己的话补充</label><div><input id="clarification-answer" value={followup} maxLength={Math.max(0, 500 - (analyzedQuery?.length ?? 0) - '\n补充说明：'.length)} placeholder="例如：我更关心公司赚的钱有没有增加" onChange={event => setFollowup(event.target.value)} disabled={loading !== null || queryChanged}/><button className="primary-action" type="button" disabled={loading !== null || queryChanged || followup.trim().length < 2} onClick={() => void analyze(`${analyzedQuery}\n补充说明：${followup.trim()}`)}>{loading === 'interpret' ? '正在理解…' : '继续解析'}</button></div></div>
           </div>}
 
-          <div className="industry-condition"><label htmlFor="industry-filter">限定行业 <span>可选 · 同花顺分类</span></label><select id="industry-filter" value={industry || ''} disabled={loading !== null} onChange={event => { setIndustry(event.target.value || null); if (!intent.clarifications?.length) setClarificationResolved(true); setError('') }}><option value="">不限行业</option>{industry && !dataStatus?.industries?.some(item => item.code === industry) && <option value={industry}>已保存行业 {industry}（当前目录暂不可用）</option>}{dataStatus?.industries?.map(item => <option key={item.code} value={item.code}>{item.name} · {item.count} 只</option>)}</select><small>{dataStatus?.industries?.length ? '仅列出当前股票池有分类数据的行业；行业条件与数值条件同时满足。' : '当前快照暂无行业数据，更新完成后可选择。'}</small></div>
+          {!showGuidance && !hasConflicts && !intent.unsupported.length && Boolean(intent.suggestions?.some(item => !activeMetrics.includes(item.metric))) && <details className="ai-suggestions" open><summary>AI 可选补充 · 尚未参与筛选</summary><p className="ai-review-intro">{intent.interpretation}</p>{intent.suggestions?.filter(item => !activeMetrics.includes(item.metric)).map(item => <article key={item.metric}><div><strong>{metricConfig.find(metric => metric.key === item.metric)?.title}</strong><p>{item.reason}</p><small>边界：{item.limitation}</small></div><button className="add-metric-button" type="button" disabled={loading !== null || queryChanged} onClick={() => { addMetric(item.metric); setAIAddedMetrics(previous => [...new Set([...previous, item.metric])]); setNotice('已加入补充指标，请设置并确认阈值后执行。') }}>加入指标</button></article>)}</details>}
+
+          <IndustrySelector value={industry} options={dataStatus?.industries || []} disabled={loading !== null} onChange={value => { setIndustry(value); if (!intent.clarifications?.length) setClarificationResolved(true); setError('') }}/>
           <div className={`condition-grid count-${activeMetrics.length}`}>
             {metricConfig.filter(metric => activeMetrics.includes(metric.key)).map((metric, i) => {
               const source = touched[metric.key] ? 'modified' : intent.sources[metric.key]
-              const sourceLabel = referenceChosen[metric.key] ? '参考条件 · 已选择' : source === 'modified' ? '由你设定' : intent.model === '本地保存的条件' ? '来自已保存策略' : source === 'user' ? '来自你的描述' : source === 'suggested' ? (accepted[metric.key] ? '已接受 AI 建议' : 'AI 建议 · 待确认') : '待补充数值'
+              const sourceLabel = referenceChosen[metric.key] ? '参考条件 · 已选择' : aiAddedMetrics.includes(metric.key) ? 'AI 补充 · 由你加入' : source === 'modified' ? '由你设定' : intent.model === '本地保存的条件' ? '来自已保存策略' : source === 'user' ? '来自你的描述' : source === 'suggested' ? (accepted[metric.key] ? '已接受 AI 建议' : 'AI 建议 · 待确认') : '待补充数值'
               const fieldError = validated[metric.key] ? validateMetric(metric.key, draft[metric.key], intent.sources[metric.key], touched[metric.key], accepted[metric.key]) : ''
               return <article className={`condition-card ${openHelp === metric.key ? 'is-help-open' : ''}`} key={metric.key}>
                 <div className="condition-topline">
@@ -818,7 +834,6 @@ function App({ accountId }: { accountId?: string }) {
                     </div>
                   </div>
                   <p className="condition-subtitle">{metric.subtitle}</p>
-                  <p className="metric-plain-explanation">{directions.find(direction => direction.key === metric.key)?.explanation}</p>
                 </div>
 
                 <div className="condition-value-editor">
@@ -842,8 +857,7 @@ function App({ accountId }: { accountId?: string }) {
           <details className="interpretation-details"><summary>查看需求与规则说明<Icon name="chevron" size={15}/></summary><p>{clarificationResolved ? `你已补充关注方向：${clarifiedDirection}。具体以当前启用的条件为准。` : intent.interpretation}</p><p>解析来源：{intent.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} · {intent.model}</p><p>仅按已启用条件筛选，所有条件需同时满足。指标口径可点击卡片标题旁的 ⓘ 查看。</p></details>
 
           </div><aside className="screen-overview" aria-labelledby="screen-overview-title"><h3 id="screen-overview-title">筛选概览</h3><dl><div><dt>分析范围</dt><dd>{dataStatus?.metadata.universe || '等待数据连接'}</dd></div><div><dt>已加载股票</dt><dd>{dataStatus ? `${dataStatus.stock_count} 只` : '暂不可用'}</dd></div><div><dt>当前条件</dt><dd>{conditionCount} 项 · 全部满足</dd></div><div><dt>数据状态</dt><dd>{dataError ? '状态连接异常' : dataStatus ? '快照已加载' : '正在连接'}</dd></div></dl><p className="overview-hint">{showGuidance ? '先明确关注方向，再确认具体条件。' : queryChanged ? '需求已变化，请先重新解析。' : '核对已启用条件，确认后查看每只股票的筛选依据。'}</p>
-          {conditionCount > 0 && <div className="conditions-footer"><button className="primary-action large-action" type="button" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => void runScreen()}><Icon name="sliders" size={18}/>{loading === 'screen' ? '正在筛选…' : screen ? '按当前条件重新筛选' : '确认并执行筛选'}<Icon name="arrow" size={18}/></button><p>基于扶摇数据快照筛选，不构成投资建议。</p></div>}
-          <div className="strategy-row-actions"><button type="button" className="add-metric-button" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => openCurrentSave(Boolean(loadedStrategy))}>{loadedStrategy ? '保存更改' : '保存策略'}</button>{loadedStrategy && <button type="button" className="add-metric-button" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => openCurrentSave()}>另存为新策略</button>}</div>
+          {conditionCount > 0 && <div className="conditions-footer"><div className="screen-primary-actions"><button type="button" className="add-metric-button save-strategy-action" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => openCurrentSave(Boolean(loadedStrategy))}>{loadedStrategy ? '保存更改' : '保存策略'}</button><button className="primary-action large-action" type="button" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => void runScreen()}><Icon name="sliders" size={18}/>{loading === 'screen' ? '正在筛选…' : screen ? '按当前条件重新筛选' : '确认并执行筛选'}<Icon name="arrow" size={18}/></button></div>{loadedStrategy && <button type="button" className="save-as-action" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || intent.unsupported.length > 0} onClick={() => openCurrentSave()}>另存为新策略</button>}<p>基于扶摇数据快照筛选，不构成投资建议。</p></div>}
           {error && errorStage === 'screen' && <div className="system-message message-error" role="alert"><Icon name="info" size={18}/><span>{error}</span><button type="button" aria-label="关闭错误提示" onClick={() => setError('')}><Icon name="close" size={17}/></button></div>}
           {notice && !error && <div className="system-message message-info" role="status"><Icon name="info" size={18}/><span>{notice}</span><button type="button" aria-label="关闭通知" onClick={() => setNotice('')}><Icon name="close" size={17}/></button></div>}
           </aside></div>
@@ -853,7 +867,7 @@ function App({ accountId }: { accountId?: string }) {
           <div className="section-heading"><div className="section-title-group"><span className="section-number">03</span><div><h2 id="results-title" ref={resultsHeading} tabIndex={-1}>每只股票，都有筛选依据</h2></div></div><span className="section-aside">基于同一份数据快照</span></div>
 
           <div className="results-surface">
-            <div className="applied-rules"><strong>本次执行条件 · 全部满足</strong><button type="button" className="add-metric-button" disabled={loading !== null || Boolean(library.error)} onClick={saveExecutedStrategy}>保存这组条件</button><div>{executedMetrics.map(metric => <span key={metric.key}>{describeRule(metric.key, lastParams![metric.key]!)}</span>)}{lastParams?.industry && <span>行业：{screen.results.flatMap(row => row.industries || []).find(item => item.code === lastParams.industry)?.name || lastParams.industry}</span>}</div></div>
+            <div className="applied-rules"><strong>本次执行条件 · 全部满足</strong><button type="button" className="add-metric-button" disabled={loading !== null || Boolean(library.error)} onClick={saveExecutedStrategy}>保存策略参数</button><div>{executedMetrics.map(metric => <span key={metric.key}>{describeRule(metric.key, lastParams![metric.key]!)}</span>)}{lastParams?.industry && <span>行业满足任一项：{industryCodes(lastParams.industry).map(code => screen.results.flatMap(row => row.industries || []).find(item => item.code === code)?.name || code).join('、')}</span>}</div></div>
             {screen.snapshot_metadata?.snapshot_id && <div className="snapshot-choice"><span>{snapshotChanged ? '已有新数据。调整条件仍沿用本次快照，便于比较。' : '调整条件沿用本次快照；也可主动重新获取最新数据。'}</span><button type="button" className="add-metric-button" disabled={loading !== null || queryChanged || showGuidance || hasConflicts || Boolean(intent?.unsupported.length)} onClick={() => void runScreen(true)}>使用最新数据重新筛选</button></div>}
             {changedParams && <div className="stale-warning"><Icon name="info" size={17}/>你已调整筛选条件；下方仍是上次执行的结果。请重新筛选后查看变化。</div>}
             <div className="results-summary">
@@ -888,7 +902,8 @@ function App({ accountId }: { accountId?: string }) {
 
       </main>
 
-      <footer className="site-footer"><div><span className="footer-brand">StockLens<span>.</span></span><span>让每个筛选结果都有据可查。</span></div><p>仅用于数据筛选与投资研究，不构成投资建议、确定性预测或收益承诺。</p></footer>
+      <SiteFooter/>
+      {settingsOpen && <AccountSettings onClose={() => setSettingsOpen(false)}/>}
 
       {drawerOpen && <StrategyDrawer account={Boolean(accountId)} items={library.items} message={library.error || libraryMessage} onClose={() => setDrawerOpen(false)} onLoad={restoreStrategy}
         onImport={accountId ? async () => {
@@ -912,10 +927,8 @@ function App({ accountId }: { accountId?: string }) {
               const check = getCheck(selectedStock, metric.key)
               return <div className="evidence-entry" key={metric.key}><div className="evidence-entry-top"><div><strong>{metric.title}</strong><span>{metric.subtitle}</span></div><span className={`evidence-state check-${(check?.status || 'UNKNOWN').toLowerCase()}`}>{checkStatusLabels[check?.status || 'UNKNOWN']}</span></div><div className="evidence-value"><span>{formatMetric(check?.actual)}{check?.actual != null ? metric.unit : ''}</span><small>实际指标值</small></div><p>{check?.reason || '缺少对应指标，无法完成判断。'}</p></div>
             })}</div>
-            <div className="drawer-divider"/><h3 className="drawer-section-title">数据口径与时间</h3>
-            <div className="data-detail-list"><div><span>金融数据来源</span><strong>扶摇金融 API</strong></div><div><span>财报报告期</span><strong>{selectedStock.financial_report || '未知'}</strong></div><div><span>估值数据时间</span><strong>{formatDate(selectedStock.valuation_timestamp)}</strong></div><div><span>K 线截止时间</span><strong>{formatDate(selectedStock.kline_timestamp)}</strong></div><div><span>波动率计算</span><strong>20 个日收益率样本标准差（未年化）</strong></div></div>
+            <div className="drawer-divider"/><DataProvenance entries={selectedStock.data_provenance || []} sources={selectedStock.sources || {}} collectedAt={screen?.snapshot_metadata?.collected_at} lastTradeDate={screen?.snapshot_metadata?.last_completed_trade_date} snapshotId={screen?.snapshot_metadata?.snapshot_id} formatDate={formatDate}/>
             {(selectedStock.data_errors ?? []).length > 0 && <div className="drawer-error"><strong>数据异常</strong>{selectedStock.data_errors.map((item, i) => <p key={i}>{item}</p>)}</div>}
-            <details className="trace-details"><summary>原始请求追踪 ID <Icon name="chevron" size={17}/></summary>{Object.entries(selectedStock.sources || {}).map(([key, value]) => <p key={key}><span>{key}</span><code>{value || '—'}</code></p>)}</details>
             <div className="drawer-disclaimer"><Icon name="info" size={17}/>只核验了本次启用的指标；未启用的指标不影响结论。结果不代表股票值得买入。</div>
           </div>
         </aside>

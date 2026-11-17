@@ -33,6 +33,7 @@ test('real account, strategy lifecycle, evidence and four viewport layouts', asy
   await page.getByRole('button', { name: '确认保存', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.reload()
+  await page.getByLabel('打开账号菜单', { exact: true }).click()
   await page.getByRole('button', { name: '我的策略', exact: true }).click()
   await page.getByRole('button', { name: '载入并编辑', exact: true }).click()
   let interpretCalls = 0
@@ -58,6 +59,7 @@ test('real account, strategy lifecycle, evidence and four viewport layouts', asy
   }
   await page.getByRole('button', { name: '保存更改', exact: true }).click()
   await page.getByRole('button', { name: '确认保存', exact: true }).click()
+  await page.getByLabel('打开账号菜单', { exact: true }).click()
   await page.getByRole('button', { name: '我的策略', exact: true }).click()
   await page.getByRole('button', { name: '复制', exact: true }).click()
   await page.getByLabel('策略名称').fill('副本')

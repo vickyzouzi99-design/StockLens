@@ -2,6 +2,20 @@
 import re
 
 
+def selection_codes(value):
+    if value is None:
+        return []
+    values = [value] if isinstance(value, str) else value
+    if not isinstance(values, list) or len(values) > 64 or any(not isinstance(code, str) or not re.fullmatch(r'\d{6}\.TI', code) for code in values):
+        raise ValueError('行业条件必须是有效的同花顺行业代码列表')
+    return sorted(set(values))
+
+
+def normalize_selection(value):
+    codes = selection_codes(value)
+    return codes[0] if len(codes) == 1 else codes or None
+
+
 def clean_memberships(items):
     if not isinstance(items, list):
         return None

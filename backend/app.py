@@ -10,7 +10,7 @@ from typing import Any, Literal
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env", override=os.getenv("STOCKLENS_ENV") != "production")
@@ -19,7 +19,7 @@ from intent_parser import parse_intent  # noqa: E402
 from screen_engine import execute_screen  # noqa: E402
 from collect_data import data_directory  # noqa: E402
 from refresh_worker import read_json  # noqa: E402
-from industries import catalog  # noqa: E402
+from industries import catalog, normalize_selection, selection_codes  # noqa: E402
 import accounts  # noqa: E402
 from starlette.responses import JSONResponse  # noqa: E402
 
@@ -63,7 +63,12 @@ class ScreenParams(BaseModel):
     pb_max: float | None = Field(default=None, gt=0, le=100000)
     roe_min: float | None = Field(default=None, ge=-10000, le=10000)
     revenue_min: float | None = Field(default=None, ge=-10000, le=10000)
-    industry: str | None = Field(default=None, pattern=r'^\d{6}\.TI$')
+    industry: str | list[str] | None = None
+
+    @field_validator('industry')
+    @classmethod
+    def industry_selection(cls, value):
+        return normalize_selection(value)
 
     @model_validator(mode="after")
     def at_least_one(self) -> "ScreenParams":
@@ -147,7 +152,7 @@ def interpret(payload: InterpretRequest) -> dict[str, Any]:
 
 
 def validate_industry(code, snapshot):
-    if code and code not in {item['code'] for item in catalog(snapshot['stocks'])}:
+    if set(selection_codes(code)) - {item['code'] for item in catalog(snapshot['stocks'])}:
         raise HTTPException(status_code=422, detail='所选行业在本次快照中没有可用分类数据，请使用最新数据或重新选择行业。')
 
 

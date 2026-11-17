@@ -1,6 +1,7 @@
 """Validate the existing frontend strategy schema before account persistence."""
 import json
 import math
+from industries import normalize_selection
 from datetime import datetime
 from fastapi import HTTPException
 
@@ -22,8 +23,7 @@ def validate_library(items):
             snapshot = item['snapshot']
             if snapshot['universeId'] != 'CSI300' or snapshot['conditionLogic'] != 'AND': raise ValueError()
             industry = snapshot['industry']
-            import re
-            if industry is not None and (not isinstance(industry, str) or not re.fullmatch(r'\d{6}\.TI', industry)): raise ValueError()
+            industry = normalize_selection(industry)
             conditions = snapshot['conditions']
             if len(conditions) != 6 or {c['metricId'] for c in conditions} != set(RULES): raise ValueError()
             rows = []

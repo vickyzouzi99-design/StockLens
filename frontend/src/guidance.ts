@@ -1,4 +1,5 @@
 import type { MetricKey } from './validation.ts'
+import type { IndustrySelection } from './industrySelection.ts'
 
 export const directions: { key: MetricKey; label: string; explanation: string }[] = [
   { key: 'pb_max', label: '关注净资产估值', explanation: '用正市净率衡量股价相对每股净资产的倍数。' },
@@ -36,7 +37,7 @@ export function describeRule(key: MetricKey, value: number): string {
   return `近20日波动率 ≤ ${value}%`
 }
 
-export function needsClarification(intent: { active_metrics: MetricKey[]; unsupported: string[]; clarifications?: string[]; industry?: string | null }, resolved: boolean) {
+export function needsClarification(intent: { active_metrics: MetricKey[]; unsupported: string[]; clarifications?: string[]; industry?: IndustrySelection }, resolved: boolean) {
   return !resolved && (Boolean(intent.clarifications?.length) ||
     (intent.active_metrics.length === 0 && !intent.industry && intent.unsupported.length === 0))
 }

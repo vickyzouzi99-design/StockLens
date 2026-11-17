@@ -10,6 +10,8 @@ import json
 import math
 from pathlib import Path
 from typing import Any, Mapping
+from industries import selection_codes
+from provenance import build_provenance
 
 METRICS = {
     "pe_max": ("pe_ttm", "市盈率 PE TTM", "倍"),
@@ -58,11 +60,11 @@ def evaluate_condition(stock: Mapping[str, Any], condition: Mapping[str, Any]) -
     if operator == 'member':
         memberships = stock.get('industries')
         actual = '、'.join(item['name'] for item in memberships) if memberships else '未知'
-        passed = any(item['code'] == condition['threshold'] for item in memberships or [])
+        passed = any(item['code'] in selection_codes(condition['threshold']) for item in memberships or [])
         selected = condition.get('industry_name', condition['threshold'])
         return {'field': field, 'status': ('PASS' if passed else 'FAIL') if memberships else 'UNKNOWN',
                 'actual': None, 'actual_text': actual, 'unit': '',
-                'reason': f'同花顺行业实际为 {actual}，要求归属 {selected}。' if memberships else '缺少有效行业分类数据，无法判断行业条件。'}
+                'reason': f'同花顺行业实际为 {actual}，要求属于以下任一行业：{selected}。' if memberships else '缺少有效行业分类数据，无法判断行业条件。'}
     threshold = float(condition["threshold"])
     unit = str(condition["unit"])
     actual = _as_float(stock.get(field))
@@ -115,6 +117,7 @@ def screen_stock(stock: Mapping[str, Any], strategy: Mapping[str, Any]) -> dict[
         "kline_timestamp": stock.get("kline_timestamp"),
         "sources": stock.get("sources") or {},
         "data_errors": stock.get("errors") or [],
+        "data_provenance": build_provenance(stock, strategy),
     }
 
 
@@ -122,7 +125,8 @@ def execute_screen(stocks: list[dict[str, Any]], params: Mapping[str, Any]) -> d
     strategy = build_strategy(params)
     for condition in strategy['conditions']:
         if condition['key'] == 'industry':
-            condition['industry_name'] = next((item['name'] for row in stocks for item in row.get('industries') or [] if item['code'] == condition['threshold']), condition['threshold'])
+            names = {item['code']: item['name'] for row in stocks for item in row.get('industries') or []}
+            condition['industry_name'] = '、'.join(names.get(code, code) for code in selection_codes(condition['threshold']))
     results = [screen_stock(stock, strategy) for stock in stocks]
     summary = {
         "selected": sum(r["status"] == "SELECTED" for r in results),

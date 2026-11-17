@@ -117,7 +117,10 @@ def me(request: Request):
     if not enabled():
         return {'local': True}
     user = principal(request)
-    return {'id': user['id'], 'username': user['username'], 'daily_limit': user['daily_limit']}
+    day = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    with database() as db:
+        used = db.execute('SELECT count FROM usage WHERE user_id=? AND day=?', (user['id'], day)).fetchone()
+    return {'id': user['id'], 'username': user['username'], 'daily_limit': user['daily_limit'], 'used_today': used['count'] if used else 0}
 
 
 @router.post('/register')
@@ -158,6 +161,27 @@ def logout(request: Request, response: Response):
     with database() as db:
         db.execute('DELETE FROM sessions WHERE hash=?', (digest(request.cookies.get(COOKIE, '')),))
     response.delete_cookie(COOKIE)
+    return {'ok': True}
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+@router.post('/password')
+def change_password(payload: PasswordChange, request: Request, response: Response):
+    mutation_origin(request)
+    throttle(request)
+    user = principal(request)
+    with database() as db:
+        db.execute('BEGIN IMMEDIATE')
+        stored = db.execute('SELECT password FROM users WHERE id=?', (user['id'],)).fetchone()['password']
+        if not hmac.compare_digest(stored, password_hash(payload.current_password, stored.split(':')[0])):
+            raise HTTPException(400, '当前密码不正确')
+        db.execute('UPDATE users SET password=? WHERE id=?', (password_hash(payload.new_password), user['id']))
+        db.execute('DELETE FROM sessions WHERE user_id=?', (user['id'],))
+        session(response, db, user['id'])
     return {'ok': True}
 
 

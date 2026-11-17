@@ -55,3 +55,25 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(HTTPException): accounts.mutation_origin(request(origin='https://evil.invalid'))
         with patch.dict(os.environ, {'STOCKLENS_ENV':'production', 'STOCKLENS_ACCESS_MODE':'local'}): self.assertTrue(accounts.enabled())
         with self.assertRaises(HTTPException): validate_library([{'schemaVersion': 9}])
+
+    def test_settings_usage_and_password_rotation_revoke_old_sessions(self):
+        user, req = self.signup('test_one', 'one')
+        _, other_user = self.signup('test_two', 'two')
+        response = Response()
+        accounts.login(accounts.Credentials(username='test_one', password='long-test-password'), request(), response)
+        old_session = request(response.headers['set-cookie'].split(';')[0])
+        accounts.reserve_call(user['id'])
+        self.assertEqual(accounts.me(req)['used_today'], 1)
+        self.assertEqual(accounts.me(other_user)['used_today'], 0)
+        with self.assertRaises(HTTPException):
+            accounts.change_password(accounts.PasswordChange(current_password='wrong', new_password='updated-test-password'), req, Response())
+        self.assertEqual(accounts.principal(req)['id'], user['id'])
+        response = Response()
+        accounts.change_password(accounts.PasswordChange(current_password='long-test-password', new_password='updated-test-password'), req, response)
+        fresh = request(response.headers['set-cookie'].split(';')[0])
+        self.assertEqual(accounts.principal(fresh)['id'], user['id'])
+        for expired in [req, old_session]:
+            with self.assertRaises(HTTPException): accounts.principal(expired)
+        self.assertEqual(accounts.me(other_user)['username'], 'test_two')
+        with self.assertRaises(HTTPException): accounts.login(accounts.Credentials(username='test_one', password='long-test-password'), request(), Response())
+        accounts.login(accounts.Credentials(username='test_one', password='updated-test-password'), request(), Response())
