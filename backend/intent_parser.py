@@ -204,7 +204,7 @@ def normalize_intent(raw: dict[str, Any], model: str, text: str = '', industry_c
     }
 
 
-def parse_intent(text: str, provider: str = "openai", industry_catalog=None) -> dict[str, Any]:
+def parse_intent(text: str, provider: str = "deepseek", industry_catalog=None) -> dict[str, Any]:
     if not text or len(text.strip()) < 2:
         raise ValueError("请提供一句具体的选股需求")
     if provider == "openai":

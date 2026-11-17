@@ -45,15 +45,16 @@ class ProviderTests(unittest.TestCase):
 
     @patch.dict(os.environ, ENV, clear=True)
     @patch("intent_parser.requests.post", return_value=response())
-    def test_omitting_provider_remains_openai(self, request):
-        self.assertEqual(parse_intent("低估值")['provider'], 'openai')
-        self.assertNotIn('thinking', request.call_args.kwargs['json'])
+    def test_omitting_provider_defaults_to_deepseek(self, request):
+        self.assertEqual(parse_intent("低估值")['provider'], 'deepseek')
+        self.assertEqual(request.call_args.args[0], 'https://api.deepseek.com/chat/completions')
+        self.assertEqual(request.call_args.kwargs['json']['thinking'], {'type': 'disabled'})
 
     @patch.dict(os.environ, {**ENV, 'DEEPSEEK_API_KEY': ''}, clear=True)
     @patch("intent_parser.requests.post")
     def test_missing_deepseek_key_never_uses_openai_key_or_falls_back(self, request):
         with self.assertRaisesRegex(RuntimeError, 'DeepSeek 尚未配置'):
-            parse_intent("低估值", "deepseek")
+            parse_intent("低估值")
         request.assert_not_called()
 
     @patch("intent_parser.requests.post")
@@ -85,6 +86,7 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'DeepSeek.*401') as caught:
             parse_intent("低估值", "deepseek")
         self.assertNotIn('secret', str(caught.exception))
+        self.assertTrue(all(call.args[0] == 'https://api.deepseek.com/chat/completions' for call in request.call_args_list))
 
 
 class ProviderRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -104,8 +106,8 @@ class ProviderRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 422)
         self.assertEqual(parse.call_count, 1)
 
-    @patch('app.parse_intent', return_value={'provider': 'openai'})
-    async def test_existing_clients_default_to_openai(self, parse):
+    @patch('app.parse_intent', return_value={'provider': 'deepseek'})
+    async def test_clients_without_provider_default_to_deepseek(self, parse):
         status, _ = await post('/api/interpret', {'text': '低估值'})
         self.assertEqual(status, 200)
-        self.assertEqual(parse.call_args.kwargs['provider'], 'openai')
+        self.assertEqual(parse.call_args.kwargs['provider'], 'deepseek')

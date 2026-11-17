@@ -1,0 +1,95 @@
+name: stocklens
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    image: stocklens-api:${STOCKLENS_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      STOCKLENS_ENV: production
+      STOCKLENS_ACCESS_MODE: required
+      STOCKLENS_DATA_DIR: /app/data
+      STOCKLENS_ACCOUNT_DB: /app/accounts/accounts.sqlite3
+      STOCKLENS_CORS_ORIGINS: ${STOCKLENS_CORS_ORIGINS:-}
+      STOCKLENS_GLOBAL_DAILY_LIMIT: ${STOCKLENS_GLOBAL_DAILY_LIMIT:-200}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Configure DEEPSEEK_API_KEY in .env.production}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    volumes:
+      - financial-data:/app/data:ro
+      - account-data:/app/accounts
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 100
+    stop_grace_period: 60s
+    logging: *logging
+
+  frontend:
+    image: stocklens-web:${STOCKLENS_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      STOCKLENS_DOMAIN: ${STOCKLENS_DOMAIN:?Configure a real HTTPS domain in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    mem_limit: 192m
+    cpus: 0.25
+    pids_limit: 100
+    logging: *logging
+
+  worker:
+    image: stocklens-api:${STOCKLENS_IMAGE_TAG:-local}
+    command: [python, backend/refresh_worker.py]
+    environment:
+      STOCKLENS_ENV: production
+      STOCKLENS_DATA_DIR: /app/data
+      STOCKLENS_UNIVERSE_LIMIT: "300"
+      STOCKLENS_MIN_COVERAGE: ${STOCKLENS_MIN_COVERAGE:-0.8}
+      FUYAO_API_KEY: ${FUYAO_API_KEY:?Configure FUYAO_API_KEY in .env.production}
+    volumes:
+      - financial-data:/app/data
+    healthcheck:
+      disable: true
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 100
+    stop_grace_period: 30s
+    logging: *logging
+
+volumes:
+  financial-data:
+  account-data:
+  caddy-data:
+  caddy-config:

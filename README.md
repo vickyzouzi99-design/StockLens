@@ -4,6 +4,8 @@
 
 [源码仓库](https://github.com/vickyzouzi99-design/StockLens) · [AI 使用与验证记录](docs/AI使用与验证记录.md) · [测试说明](docs/测试说明.md) · [服务器部署](docs/服务器部署.md)
 
+生产Docker部署请使用[DEPLOYMENT.md](DEPLOYMENT.md)：Caddy + FastAPI + 独立采集worker，适配2核2GB服务器；前后端默认DeepSeek，失败不自动回退OpenAI。执行筛选后默认显示符合条件列表，仍可切换其他状态。
+
 ## 产品选择
 
 - 三步共享同一份状态：描述需求 → 确认条件 → 查看结果。模糊目标先澄清，缺失阈值不凭空补齐，AI 建议阈值须确认。

@@ -46,7 +46,7 @@ async def access_control(request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv(
-        "STOCKLENS_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        "STOCKLENS_CORS_ORIGINS", "" if os.getenv("STOCKLENS_ENV") == "production" else "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT"],
@@ -84,7 +84,7 @@ class ScreenRequest(ScreenParams):
 class InterpretRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=2, max_length=500)
-    provider: Literal["openai", "deepseek"] = "openai"
+    provider: Literal["openai", "deepseek"] = "deepseek"
 
 
 class CompareRequest(BaseModel):

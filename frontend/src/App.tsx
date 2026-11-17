@@ -273,7 +273,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
   const [libraryReady, setLibraryReady] = useState(!accountId)
   const [query, setQuery] = useState('')
   const [editingIdea, setEditingIdea] = useState(true)
-  const [provider, setProvider] = useState<Provider>('openai')
+  const [provider, setProvider] = useState<Provider>('deepseek')
   const [analyzedQuery, setAnalyzedQuery] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [touched, setTouched] = useState(emptyTouched)
@@ -287,7 +287,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
   const [lastParams, setLastParams] = useState<Params | null>(null)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [selectedCode, setSelectedCode] = useState<string | null>(null)
-  const [filter, setFilter] = useState<ResultFilter>('ALL')
+  const [filter, setFilter] = useState<ResultFilter>('SELECTED')
   const [stockSearch, setStockSearch] = useState('')
   const [loading, setLoading] = useState<'interpret' | 'screen' | null>(null)
   const [error, setError] = useState('')
@@ -491,7 +491,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
       setComparison(null)
       setLastParams(null)
       setSelectedCode(null)
-      setFilter('ALL')
+      setFilter('SELECTED')
       setStockSearch('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI 解析失败，请稍后重试。')
@@ -595,7 +595,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
       setLastParams(nextParams)
       setExecutedSnapshot({ snapshot: makeSnapshot(draft, activeMetrics, industry), query: analyzedQuery || '', provider: intent.provider })
       setSelectedCode(null)
-      setFilter('ALL')
+      setFilter('SELECTED')
       setStockSearch('')
     } catch (err) {
       setError(err instanceof Error ? err.message : '筛选失败，请稍后重试。')
@@ -881,7 +881,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
                 ['SELECTED', '符合', screen.summary.selected],
                 ['EXCLUDED', '未符合', screen.summary.excluded],
                 ['INSUFFICIENT_DATA', '数据不足', screen.summary.insufficient_data],
-              ] as [ResultFilter, string, number][]).map(([key, label, count]) => <button key={key} type="button" className={`filter-button ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>{label}<span>{count}</span></button>)}
+              ] as [ResultFilter, string, number][]).map(([key, label, count]) => <button key={key} type="button" aria-pressed={filter === key} className={`filter-button ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>{label}<span>{count}</span></button>)}
             </div><label className="table-search"><Icon name="search" size={16}/><span className="visually-hidden">搜索股票名称或代码</span><input value={stockSearch} onChange={event => setStockSearch(event.target.value)} placeholder="搜索股票 / 代码" /></label></div>
 
             <div className="table-scroll" role="region" aria-label="股票筛选结果，可横向滚动" tabIndex={0}><table className="stock-table"><thead><tr><th>股票名称</th>{lastParams?.industry && <th>同花顺行业</th>}{executedMetrics.map(metric => <th key={metric.key} className="numeric-cell">{metric.title}<small>{metric.subtitle}</small></th>)}<th>筛选判断</th><th aria-label="详细信息"/></tr></thead><tbody>
@@ -890,7 +890,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
                 <td><span className={`stock-status status-${stock.status.toLowerCase()}`}><span className="status-point"/>{stockStatusLabels[stock.status]}</span></td>
                 <td><button type="button" className="row-detail" aria-label={`查看${stock.name}筛选详情`} onClick={() => setSelectedCode(stock.thscode)}><Icon name="arrow" size={17}/></button></td></tr>)}
             </tbody></table>
-              {rows.length === 0 && <div className="no-rows">没有符合当前列表过滤条件的股票。可以切换状态或清除搜索。</div>}
+              {rows.length === 0 && <div className="no-rows">{filter === 'SELECTED' && screen.summary.selected === 0 && !stockSearch ? '本次没有符合全部条件的股票。可调整条件，或切换「未符合」「数据不足」查看原因。' : '没有符合当前列表过滤条件的股票。可以切换状态或清除搜索。'}</div>}
             </div>
             <div className="results-footnote"><Icon name="info" size={16}/><span>本次评估快照中的 {screen.results.length} 只股票，不代表全 A 股。快照采集时间：{formatDate(screen.snapshot_metadata?.collected_at)}。完整日K线截至：{screen.snapshot_metadata?.last_completed_trade_date || '见个股详情'}；不是实时行情。</span></div>
           </div>

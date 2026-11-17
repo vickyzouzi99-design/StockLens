@@ -55,7 +55,7 @@ class GuidanceTests(unittest.TestCase):
                 normalize_intent({"active_metrics": [], field: "银行股"}, "test")
 
     @patch("intent_parser.requests.post")
-    @patch.dict("os.environ", {"OPENAI_API_KEY": "test-only", "LLM_BASE_URL": "https://api.openai.com/v1"})
+    @patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-only"})
     def test_followup_keeps_original_text_and_can_screen(self, post):
         raw = {"active_metrics": ["profit_min"], "parameters": {"profit_min": 10},
                "sources": {"profit_min": "user"}, "clarifications": [], "unsupported": [], 'industry': None,

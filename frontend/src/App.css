@@ -89,7 +89,7 @@
 .provider-select-wrap select:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .provider-select-wrap select:disabled { cursor: wait; opacity: .6; }
 .provider-select-wrap > svg { position: absolute; right: 9px; pointer-events: none; }
-.query-input { display: block; width: 100%; min-height: clamp(132px, calc(100dvh - 490px), 380px); padding: 18px 24px; border: 0; outline: none; background: #fff; resize: vertical; color: var(--text); font-size: 16px; line-height: 1.65; letter-spacing: -.01em; }
+.query-input { display: block; width: 100%; min-height: clamp(156px, calc(100dvh - 466px), 404px); padding: 18px 24px; border: 0; outline: none; background: #fff; resize: vertical; color: var(--text); font-size: 16px; line-height: 1.65; letter-spacing: -.01em; }
 .query-input::placeholder { color: #A7B2B9; }
 .query-input:focus-visible { outline: none; box-shadow: none; }
 .composer-actions { border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 20px 20px 25px; }
@@ -480,7 +480,7 @@
   .composer-cancel { padding-inline: 9px; font-size: 12px; }
   .composer-model > label { display: none; }
   .composer-card { max-width: 1040px; margin-inline: auto; border-radius: var(--card-radius); }
-  .query-input { padding: 12px 18px; font-size: 15px; min-height: clamp(96px, calc(100dvh - 640px), 200px); }
+  .query-input { padding: 12px 18px; font-size: 15px; min-height: clamp(112px, calc(100dvh - 624px), 216px); }
   .composer-actions { border-top: 1px solid var(--border); flex-wrap: wrap; padding: 12px 17px 17px; }
   .composer-hint { max-width: 1040px; margin: 12px auto; width: 100%; }
   .composer-submit { width: 100%; justify-content: space-between; }
@@ -602,11 +602,11 @@ dialog::backdrop { background: rgb(16 34 47 / 35%); }
   .hero h1 { font-size: clamp(30px, 3vw, 40px); margin: 8px 0; }
   .hero-subtitle { font-size: 15px; line-height: 1.7; }
   .composer-topline { padding: 13px 24px; }
-  .query-input { min-height: clamp(72px, calc(100dvh - 440px), 260px); padding: 10px 24px; }
+  .query-input { min-height: clamp(84px, calc(100dvh - 428px), 272px); padding: 10px 24px; }
   .composer-actions { padding: 12px 20px; }
 }
 
 @media (min-width: 561px) and (max-width: 900px) {
-  .query-input { min-height: clamp(130px, calc(100dvh - 600px), 320px); }
+  .query-input { min-height: clamp(150px, calc(100dvh - 580px), 340px); }
   .composer-topline { min-height: 102px; align-content: center; }
 }

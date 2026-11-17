@@ -67,7 +67,8 @@ def principal(request):
 def mutation_origin(request):
     origin = request.headers.get('origin')
     allowed = {str(request.base_url).rstrip('/')}
-    allowed.update(os.getenv('STOCKLENS_CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(','))
+    default = '' if os.getenv('STOCKLENS_ENV') == 'production' else 'http://localhost:5173,http://127.0.0.1:5173'
+    allowed.update(origin.strip() for origin in os.getenv('STOCKLENS_CORS_ORIGINS', default).split(',') if origin.strip())
     if origin and origin not in allowed:
         raise HTTPException(403, '请求来源不受信任')
 
