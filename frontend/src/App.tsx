@@ -635,7 +635,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
     if (!intent || queryChanged || showGuidance || hasConflicts || intent.unsupported.length) return
     setValidated(Object.fromEntries(metricKeys.map(key => [key, true])) as Record<MetricKey, boolean>)
     const invalid = activeMetrics.find(key => validateMetric(key, draft[key], intent.sources[key], touched[key], accepted[key]))
-    if (invalid) { metricInputs.current[invalid]?.focus(); return }
+    if (invalid) { setError(validateMetric(invalid, draft[invalid], intent.sources[invalid], touched[invalid], accepted[invalid])); metricInputs.current[invalid]?.focus(); return }
     const snapshot = makeSnapshot(draft, activeMetrics, industry)
     try { validateSnapshot(snapshot) } catch (err) { setError((err as Error).message); return }
     setLibraryMessage('')
@@ -751,6 +751,7 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
             <div className="composer-actions">
               <div className="composer-model"><label htmlFor="ai-provider">AI 服务</label><div className="provider-select-wrap"><select id="ai-provider" value={provider} disabled={loading !== null} onChange={event => { setProvider(event.target.value as Provider); setError(''); setNotice('') }}><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select><Icon name="chevron" size={14}/></div></div>
               <div className="composer-submit"><span className="character-count">{query.length} / 500</span>
+                {intent && <button type="button" className="composer-cancel" disabled={loading !== null} onClick={() => { setQuery(analyzedQuery ?? ''); setProvider(intent.provider); setEditingIdea(false); setError(''); setNotice('') }}>取消修改</button>}
                 <button className="primary-action" type="button" onClick={() => void analyze()} disabled={loading !== null}>
                   <Icon name="sparkles" size={17}/>
                   {loading === 'interpret' ? '正在理解需求…' : intent ? '重新解析需求' : '解析选股需求'}
@@ -764,7 +765,6 @@ function App({ accountId, username, local, onLogout }: { accountId?: string; use
 
 
           {queryChanged && intent && <div className="inline-note tone-warn"><Icon name="info" size={16}/>{providerChanged ? '已切换 AI 服务。请重新解析；下方仍保留切换前的条件与结果。' : '描述已发生变化。请点击「重新解析需求」更新下面的条件。'}</div>}
-          {intent && !queryChanged && <button type="button" className="collapse-idea" onClick={() => { setEditingIdea(false); requestAnimationFrame(() => conditionsHeading.current?.focus()) }}>收起需求，继续确认条件</button>}
           </div>
         </section>
 

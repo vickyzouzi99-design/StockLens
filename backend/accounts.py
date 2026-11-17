@@ -216,6 +216,8 @@ def put_strategies(payload: Library, request: Request):
 
 
 if __name__ == '__main__':
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / '.env', override=os.getenv('STOCKLENS_ENV') != 'production')
     parser = argparse.ArgumentParser(description='Create a single-use invitation; prints it once. Keep it private.')
     parser.add_argument('--daily-limit', type=int, default=10)
     parser.add_argument('--days', type=int, default=7)
