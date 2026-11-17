@@ -1,0 +1,27 @@
+[Unit]
+Description=StockLens Fuyao data refresh worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=stocklens
+Group=stocklens
+WorkingDirectory=/opt/stocklens
+Environment=PYTHONUNBUFFERED=1
+Environment=STOCKLENS_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=STOCKLENS_DATA_DIR=/var/lib/stocklens
+Environment=STOCKLENS_UNIVERSE_LIMIT=300
+EnvironmentFile=/etc/stocklens/refresh.env
+ExecStart=/opt/stocklens/.venv/bin/python /opt/stocklens/backend/refresh_worker.py
+Restart=on-failure
+RestartSec=30
+StateDirectory=stocklens
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

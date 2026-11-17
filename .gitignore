@@ -1,0 +1,31 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local data
+data/**/*.json
+data/*.json
+data/*.lock
+data/.pending-*
+deploy/refresh.env
+deploy/api.env
+
+# Frontend
+node_modules/
+dist/
+
+# Local work products and acceptance artifacts
+.vscode/
+*.zip
+*.log
+frontend/test-results/
+frontend/playwright-report/
+artifacts/
+# Downloaded third-party reference, retained locally for development
+docs/fuyao-api-reference.txt

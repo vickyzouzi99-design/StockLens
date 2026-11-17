@@ -1,0 +1,25 @@
+[Unit]
+Description=StockLens API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=stocklens
+Group=stocklens
+WorkingDirectory=/opt/stocklens
+Environment=PYTHONUNBUFFERED=1
+Environment=STOCKLENS_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=STOCKLENS_DATA_DIR=/var/lib/stocklens
+EnvironmentFile=/etc/stocklens/api.env
+ExecStart=/opt/stocklens/.venv/bin/python -m uvicorn app:app --app-dir /opt/stocklens/backend --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
